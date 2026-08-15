@@ -39,25 +39,29 @@ _DIGITS = re.compile(r"\D+")
 
 
 def normalize_birth(raw: str) -> Optional[str]:
-    """'1990-01-01', '90.1.1', '900101', '1990년 1월 1일' → '19900101'."""
+    """생년월일을 6자리(YYMMDD)로 정규화한다.
+
+    '900101', '90-01-01', '90.1.1'      → '900101'
+    '19900101', '1990-01-01' (8자리 입력) → '900101'  (앞 2자리 세기 버림)
+    """
     if not raw:
         return None
     d = _DIGITS.sub("", raw)
 
-    if len(d) == 8:
-        pass
-    elif len(d) == 6:
-        # 2자리 연도 → 00~현재년도 두자리는 2000년대, 나머지는 1900년대
-        yy, rest = int(d[:2]), d[2:]
-        century = 2000 if yy <= 26 else 1900
-        d = f"{century + yy}{rest}"
-    else:
+    if len(d) == 8:          # 8자리로 입력해도 관대하게 받아준다
+        d = d[2:]
+    elif len(d) != 6:
         return None
 
-    y, m, day = int(d[:4]), int(d[4:6]), int(d[6:8])
-    if not (1900 <= y <= 2100 and 1 <= m <= 12 and 1 <= day <= 31):
+    m, day = int(d[2:4]), int(d[4:6])
+    if not (1 <= m <= 12 and 1 <= day <= 31):
         return None
     return d
+
+
+def format_birth(d6: str) -> str:
+    """'900101' → '90-01-01' (사용자에게 보여줄 때)"""
+    return f"{d6[:2]}-{d6[2:4]}-{d6[4:6]}"
 
 
 def normalize_name(raw: str) -> Optional[str]:
