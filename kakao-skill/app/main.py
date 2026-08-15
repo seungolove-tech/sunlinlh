@@ -5,8 +5,7 @@
 엔드포인트
   POST /skill/contract-status   카카오 i 오픈빌더 스킬용 (응답: 카카오 template 2.0)
   POST /agent/contract-status   sidetalk AI 에이전트용   (응답: sidetalk.card.v1)
-
-두 엔드포인트는 조회 로직을 공유하고 응답 포맷만 다르다.
+  POST /agent/echo              임시 확인용 — 확인 끝나면 삭제할 것
 """
 import json
 import logging
@@ -203,11 +202,7 @@ AGENT_BUTTONS = [
 
 def agent_card(title: str, description: str,
                buttons: Optional[List[dict]] = None) -> Dict[str, Any]:
-    """sidetalk.card.v1 형식 응답을 만든다.
-
-    items 가 한 건뿐이라 displayMode 는 어떤 값이든 결과가 같지만,
-    매뉴얼 예시를 그대로 따라 "random" 을 쓴다.
-    """
+    """sidetalk.card.v1 형식 응답을 만든다."""
     item: Dict[str, Any] = {
         "type": "text",
         "title": title[:50],
@@ -226,7 +221,6 @@ def agent_card(title: str, description: str,
 def agent_get_param(data: Any, *keys: str) -> Optional[str]:
     """에이전트가 보낸 본문에서 값을 찾는다.
 
-    설정 화면에서 파라미터를 어떤 이름으로 매핑했는지에 따라
     최상위에 올 수도, params/data 같은 키 아래에 중첩될 수도 있어
     한 단계씩 내려가며 훑는다.
     """
@@ -263,8 +257,13 @@ async def agent_contract_status(request: Request):
     except Exception:
         body = {}
 
-    raw_name = agent_get_param(body, "name", "이름", "성함", "applicant_name")
-    raw_birth = agent_get_param(body, "birth", "생년월일", "birthday", "birth_ymd")
+    raw_name = agent_get_param(
+        body, "name", "이름", "성함", "applicant_name")
+    raw_birth = agent_get_param(
+        body, "birth", "생년월일", "birthday", "birth_ymd",
+        # sidetalk 트리거에 "주민번호앞자리6자리" 로 등록한 경우
+        "주민번호앞자리6자리", "주민번호앞자리", "주민번호", "주민등록번호앞자리6자리",
+        "rrn6", "ssn6")
 
     name = kakao.normalize_name(raw_name or "")
     birth = kakao.normalize_birth(raw_birth or "")
@@ -298,22 +297,43 @@ async def agent_contract_status(request: Request):
 # 파라미터 모양 확인이 끝나면 이 블록 전체를 삭제할 것.
 # ════════════════════════════════════════════════════════════
 
+def _flatten(obj: Any, prefix: str = "") -> List[str]:
+    """중첩 구조를 '경로 = 값' 한 줄씩으로 펼친다.
+
+    중괄호·따옴표를 쓰지 않는다. JSON 모양으로 돌려주면 sidetalk 화면이
+    그걸 다시 데이터로 해석해버려 [object Object] 로만 보이기 때문이다.
+    """
+    out: List[str] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            out += _flatten(v, f"{prefix}.{k}" if prefix else str(k))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            out += _flatten(v, f"{prefix}[{i}]")
+    else:
+        out.append(f"{prefix or 'value'} = {obj}")
+    return out
+
+
 @app.post("/agent/echo")
 async def agent_echo(request: Request):
     if not _authorized(request):
         return JSONResponse(status_code=401, content={"message": "unauthorized"})
 
     raw = await request.body()
+    text = raw.decode("utf-8", "replace")
+
     try:
-        body = await request.json()
-        pretty = json.dumps(body, ensure_ascii=False, indent=2)
+        body = json.loads(text)
+        lines = _flatten(body) or ["(빈 본문)"]
     except Exception:
-        pretty = raw.decode("utf-8", "replace")
+        # JSON 이 아니면 원문 그대로. 중괄호는 화면 오해를 막으려고 치환한다.
+        lines = ["JSON 아님 — 원문 그대로:",
+                 text.replace("{", "(").replace("}", ")").replace('"', "'")]
 
-    headers = {k: v for k, v in request.headers.items()
-               if k.lower() not in ("authorization", "cookie")}
+    report = f"길이 {len(raw)}바이트\n" + "\n".join(lines)
 
-    log.info("ECHO body=%s", pretty)
-    log.info("ECHO headers=%s", headers)
+    log.info("ECHO bytes=%d raw=%r", len(raw), text[:500])
+    log.info("ECHO content-type=%s", request.headers.get("content-type"))
 
-    return agent_card("echo — 받은 본문", pretty[:900] or "(본문 없음)")
+    return agent_card("echo — 받은 본문", report[:900])
