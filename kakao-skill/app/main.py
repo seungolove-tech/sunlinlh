@@ -5,12 +5,10 @@
 엔드포인트
   POST     /skill/contract-status   카카오 i 오픈빌더 스킬용 (응답: 카카오 template 2.0)
   POST/GET /agent/contract-status   sidetalk AI 에이전트용   (응답: sidetalk.card.v1)
-  GET/POST /agent/echo              임시 진단용 — 확인 끝나면 삭제할 것
 
 GET 은 sidetalk 의 POST 본문 전송 결함 때문에 열어둔 우회로다.
 DEMO_MODE 일 때만 동작하므로 실제 개인정보가 URL 로 흐르지 않는다.
 """
-import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -323,62 +321,3 @@ def _agent_respond(body: Any, method: str) -> Dict[str, Any]:
         _describe(rows),
         AGENT_BUTTONS,
     )
-
-
-# ════════════════════════════════════════════════════════════
-# 임시 진단용 — sidetalk이 실제로 보내는 것을 그대로 보여준다.
-# 확인이 끝나면 이 블록 전체를 삭제할 것.
-# ════════════════════════════════════════════════════════════
-
-def _flatten(obj: Any, prefix: str = "") -> List[str]:
-    """중첩 구조를 '경로 = 값' 한 줄씩으로 펼친다.
-
-    중괄호·따옴표를 쓰지 않는다. JSON 모양으로 돌려주면 sidetalk 화면이
-    그걸 다시 데이터로 해석해버려 [object Object] 로만 보이기 때문이다.
-    """
-    out: List[str] = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            out += _flatten(v, f"{prefix}.{k}" if prefix else str(k))
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            out += _flatten(v, f"{prefix}[{i}]")
-    else:
-        out.append(f"{prefix or 'value'} = {obj}")
-    return out
-
-
-@app.get("/agent/echo")
-async def agent_echo_get(request: Request):
-    """진단 전용 — GET 으로 왔을 때 쿼리스트링을 보여준다."""
-    if not _authorized(request):
-        return JSONResponse(status_code=401, content={"message": "unauthorized"})
-
-    params = dict(request.query_params)
-    lines = [f"{k} = {v}" for k, v in params.items()] or ["(쿼리 없음)"]
-    log.info("ECHO-GET params=%s", params)
-    return agent_card("echo — GET 쿼리", "방식: GET\n" + "\n".join(lines))
-
-
-@app.post("/agent/echo")
-async def agent_echo(request: Request):
-    """진단 전용 — POST 본문을 그대로 보여준다."""
-    if not _authorized(request):
-        return JSONResponse(status_code=401, content={"message": "unauthorized"})
-
-    raw = await request.body()
-    text = raw.decode("utf-8", "replace")
-
-    try:
-        body = json.loads(text)
-        lines = _flatten(body) or ["(빈 본문)"]
-    except Exception:
-        lines = ["JSON 아님 — 원문 그대로:",
-                 text.replace("{", "(").replace("}", ")").replace('"', "'")]
-
-    report = f"길이 {len(raw)}바이트\n" + "\n".join(lines)
-
-    log.info("ECHO bytes=%d raw=%r", len(raw), text[:500])
-    log.info("ECHO content-type=%s", request.headers.get("content-type"))
-
-    return agent_card("echo — 받은 본문", report[:900])
