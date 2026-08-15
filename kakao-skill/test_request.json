@@ -1,0 +1,12 @@
+{
+  "intent": {"id": "blk1", "name": "계약진행상태조회"},
+  "userRequest": {"utterance": "홍길동", "user": {"id": "abc123", "type": "botUserKey"}},
+  "action": {
+    "name": "계약상태조회",
+    "params": {"name": "홍길동", "birth": "1990-01-01"},
+    "detailParams": {
+      "name": {"origin": "홍길동", "value": "홍길동"},
+      "birth": {"origin": "1990년 1월 1일", "value": "{\"date\":\"1990-01-01\"}"}
+    }
+  }
+}
