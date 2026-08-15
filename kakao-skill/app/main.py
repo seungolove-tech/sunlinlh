@@ -77,7 +77,7 @@ async def contract_status(request: Request):
             "이름과 생년월일을 다시 확인해 주세요.\n"
             "예) 홍길동 / 900101\n\n"
             "생년월일은 6자리 숫자로 입력해 주시면 됩니다.",
-            quick_replies=[kakao.qr_message("다시 조회하기", "계약 진행상태 조회")],
+            quick_replies=[kakao.qr_message("다시 조회하기", "권리분석 진행상태 조회")],
         )
 
     # 3) 조회
@@ -118,7 +118,7 @@ async def contract_status(request: Request):
             "· 아직 접수 전이거나\n"
             "· 이름·생년월일이 접수 서류와 다르게 입력된 경우일 수 있습니다.\n\n"
             f"확인이 필요하시면 {CONTACT_TEXT} 로 문의해 주세요.",
-            quick_replies=[kakao.qr_message("다시 조회하기", "계약 진행상태 조회")],
+            quick_replies=[kakao.qr_message("다시 조회하기", "권리분석 진행상태 조회")],
         )
 
     row = rows[0]
@@ -143,10 +143,10 @@ async def contract_status(request: Request):
         lines.append(f"\n※ 접수 건이 {len(rows)}건 있어 가장 최근 건을 보여드립니다.")
 
     return kakao.text_card(
-        title=f"{name}님 계약 진행상태",
+        title=f"{name}님 권리분석 진행상태",
         description="\n".join(lines),
         quick_replies=[
-            kakao.qr_message("다시 조회하기", "계약 진행상태 조회"),
+            kakao.qr_message("다시 조회하기", "권리분석 진행상태 조회"),
             kakao.qr_message("상담원 연결", "상담원 연결"),
         ],
     )
