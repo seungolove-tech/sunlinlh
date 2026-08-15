@@ -10,7 +10,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from . import kakao
-from .config import CONTACT_TEXT, LOG_PII, SKILL_TOKEN
+from .config import (
+    CONTACT_TEXT,
+    DEMO_MODE,
+    DEMO_STATUS_CODE,
+    DEMO_STATUS_NAME,
+    LOG_PII,
+    SKILL_TOKEN,
+)
 from .db import find_contracts
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -20,7 +27,7 @@ app = FastAPI(title="선린 계약상태 조회 스킬", docs_url=None, redoc_ur
 
 # 진행 단계 — 실제 DB의 status_code 에 맞춰 수정하세요
 STAGES = [
-    ("RECEIVED", "접수완료"),
+    ("RECEIVED", "접수중"),
     ("REVIEWING", "권리분석 심사중"),
     ("SUPPLEMENT", "서류 보완요청"),
     ("APPROVED", "심사승인 (계약대기)"),
@@ -68,20 +75,35 @@ async def contract_status(request: Request):
     if not name or not birth:
         return kakao.simple_text(
             "이름과 생년월일을 다시 확인해 주세요.\n"
-            "예) 홍길동 / 19900101\n\n"
-            "생년월일은 8자리 숫자로 입력해 주시면 됩니다.",
+            "예) 홍길동 / 900101\n\n"
+            "생년월일은 6자리 숫자로 입력해 주시면 됩니다.",
             quick_replies=[kakao.qr_message("다시 조회하기", "계약 진행상태 조회")],
         )
 
-    # 3) DB 조회 (5초 제한 — 인덱스 필수: applicant_name, birth_ymd)
-    try:
-        rows = find_contracts(name, birth)
-    except Exception:
-        log.exception("db error")
-        return kakao.simple_text(
-            "지금은 조회가 어렵습니다. 잠시 후 다시 시도해 주세요.\n"
-            f"급하신 경우 {CONTACT_TEXT} 로 문의 주시기 바랍니다."
-        )
+    # 3) 조회
+    if DEMO_MODE:
+        # 테스트 모드: DB를 보지 않고, 입력한 이름 그대로 "접수중"을 만들어 돌려준다
+        log.info("DEMO_MODE 응답")
+        rows = [{
+            "name": name,
+            "birth": birth,
+            "status_code": DEMO_STATUS_CODE,
+            "status_name": DEMO_STATUS_NAME,
+            "address": None,
+            "manager": None,
+            "updated_at": None,
+            "memo": "※ 테스트용 임시 응답입니다. 실제 접수 내역이 아닙니다.",
+        }]
+    else:
+        # 실제 DB 조회 (5초 제한 — 인덱스 필수: applicant_name, birth_ymd)
+        try:
+            rows = find_contracts(name, birth)
+        except Exception:
+            log.exception("db error")
+            return kakao.simple_text(
+                "지금은 조회가 어렵습니다. 잠시 후 다시 시도해 주세요.\n"
+                f"급하신 경우 {CONTACT_TEXT} 로 문의 주시기 바랍니다."
+            )
 
     if LOG_PII:
         log.info("lookup name=%s birth=%s hit=%d", name, birth, len(rows))
@@ -91,7 +113,7 @@ async def contract_status(request: Request):
     # 4) 응답 만들기
     if not rows:
         return kakao.simple_text(
-            f"입력하신 정보({name} / {birth[:4]}-{birth[4:6]}-{birth[6:]})로\n"
+            f"입력하신 정보({name} / {kakao.format_birth(birth)})로\n"
             "조회되는 접수 건이 없습니다.\n\n"
             "· 아직 접수 전이거나\n"
             "· 이름·생년월일이 접수 서류와 다르게 입력된 경우일 수 있습니다.\n\n"
