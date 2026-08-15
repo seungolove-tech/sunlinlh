@@ -32,7 +32,6 @@ STAGES = [
     ("SUPPLEMENT", "서류 보완요청"),
     ("APPROVED", "심사승인 (계약대기)"),
     ("CONTRACTED", "계약체결 완료"),
-    ("MOVED_IN", "잔금·입주 완료"),
 ]
 STAGE_INDEX = {code: i for i, (code, _) in enumerate(STAGES)}
 
