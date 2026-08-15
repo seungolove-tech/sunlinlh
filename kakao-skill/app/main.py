@@ -8,6 +8,7 @@
 
 두 엔드포인트는 조회 로직을 공유하고 응답 포맷만 다르다.
 """
+import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -290,3 +291,29 @@ async def agent_contract_status(request: Request):
         _describe(rows),
         AGENT_BUTTONS,
     )
+
+
+# ════════════════════════════════════════════════════════════
+# 임시 확인용 — sidetalk이 실제로 보내는 본문을 그대로 보여준다.
+# 파라미터 모양 확인이 끝나면 이 블록 전체를 삭제할 것.
+# ════════════════════════════════════════════════════════════
+
+@app.post("/agent/echo")
+async def agent_echo(request: Request):
+    if not _authorized(request):
+        return JSONResponse(status_code=401, content={"message": "unauthorized"})
+
+    raw = await request.body()
+    try:
+        body = await request.json()
+        pretty = json.dumps(body, ensure_ascii=False, indent=2)
+    except Exception:
+        pretty = raw.decode("utf-8", "replace")
+
+    headers = {k: v for k, v in request.headers.items()
+               if k.lower() not in ("authorization", "cookie")}
+
+    log.info("ECHO body=%s", pretty)
+    log.info("ECHO headers=%s", headers)
+
+    return agent_card("echo — 받은 본문", pretty[:900] or "(본문 없음)")
