@@ -5,7 +5,7 @@
 엔드포인트
   POST /skill/contract-status   카카오 i 오픈빌더 스킬용 (응답: 카카오 template 2.0)
   POST /agent/contract-status   sidetalk AI 에이전트용   (응답: sidetalk.card.v1)
-  POST /agent/echo              임시 확인용 — 확인 끝나면 삭제할 것
+  GET/POST /agent/echo          임시 진단용 — 확인 끝나면 삭제할 것
 """
 import json
 import logging
@@ -293,8 +293,8 @@ async def agent_contract_status(request: Request):
 
 
 # ════════════════════════════════════════════════════════════
-# 임시 확인용 — sidetalk이 실제로 보내는 본문을 그대로 보여준다.
-# 파라미터 모양 확인이 끝나면 이 블록 전체를 삭제할 것.
+# 임시 진단용 — sidetalk이 실제로 보내는 것을 그대로 보여준다.
+# 확인이 끝나면 이 블록 전체를 삭제할 것.
 # ════════════════════════════════════════════════════════════
 
 def _flatten(obj: Any, prefix: str = "") -> List[str]:
@@ -313,6 +313,23 @@ def _flatten(obj: Any, prefix: str = "") -> List[str]:
     else:
         out.append(f"{prefix or 'value'} = {obj}")
     return out
+
+
+@app.get("/agent/echo")
+async def agent_echo_get(request: Request):
+    """진단 전용 — GET 으로 왔을 때 쿼리스트링을 보여준다.
+
+    POST 본문이 깨지는 원인을 가려내기 위한 임시 조치다.
+    실제 운영에서는 GET 을 쓰면 안 된다. 이름·생년월일이 URL 에 실려
+    접속기록에 개인정보가 그대로 남는다. 확인이 끝나면 삭제할 것.
+    """
+    if not _authorized(request):
+        return JSONResponse(status_code=401, content={"message": "unauthorized"})
+
+    params = dict(request.query_params)
+    lines = [f"{k} = {v}" for k, v in params.items()] or ["(쿼리 없음)"]
+    log.info("ECHO-GET params=%s", params)
+    return agent_card("echo — GET 쿼리", "방식: GET\n" + "\n".join(lines))
 
 
 @app.post("/agent/echo")
