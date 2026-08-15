@@ -3,9 +3,12 @@
 실행:  uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 엔드포인트
-  POST /skill/contract-status   카카오 i 오픈빌더 스킬용 (응답: 카카오 template 2.0)
-  POST /agent/contract-status   sidetalk AI 에이전트용   (응답: sidetalk.card.v1)
-  GET/POST /agent/echo          임시 진단용 — 확인 끝나면 삭제할 것
+  POST     /skill/contract-status   카카오 i 오픈빌더 스킬용 (응답: 카카오 template 2.0)
+  POST/GET /agent/contract-status   sidetalk AI 에이전트용   (응답: sidetalk.card.v1)
+  GET/POST /agent/echo              임시 진단용 — 확인 끝나면 삭제할 것
+
+GET 은 sidetalk 의 POST 본문 전송 결함 때문에 열어둔 우회로다.
+DEMO_MODE 일 때만 동작하므로 실제 개인정보가 URL 로 흐르지 않는다.
 """
 import json
 import logging
@@ -122,7 +125,7 @@ def _not_found_text(name: str, birth: str) -> str:
 
 
 def _authorized(request: Request) -> bool:
-    """헤더의 Bearer 토큰 확인. 두 엔드포인트 공통."""
+    """헤더의 Bearer 토큰 확인. 모든 엔드포인트 공통."""
     if not SKILL_TOKEN:
         return True
     return request.headers.get("authorization", "") == f"Bearer {SKILL_TOKEN}"
@@ -219,11 +222,7 @@ def agent_card(title: str, description: str,
 
 
 def agent_get_param(data: Any, *keys: str) -> Optional[str]:
-    """에이전트가 보낸 본문에서 값을 찾는다.
-
-    최상위에 올 수도, params/data 같은 키 아래에 중첩될 수도 있어
-    한 단계씩 내려가며 훑는다.
-    """
+    """요청에서 값을 찾는다. 중첩된 구조도 한 단계씩 내려가며 훑는다."""
     if not isinstance(data, dict):
         return None
     for key in keys:
@@ -238,16 +237,48 @@ def agent_get_param(data: Any, *keys: str) -> Optional[str]:
     return None
 
 
+NAME_KEYS = ("name", "이름", "성함", "applicant_name")
+BIRTH_KEYS = (
+    # sidetalk 이 실제로 보내는 키 (2026-08 확인)
+    "birthdate", "birthDate", "birth_date",
+    "birth", "생년월일", "birthday", "birth_ymd", "dob",
+    # 트리거에 "주민번호앞자리6자리" 로 등록한 경우
+    "주민번호앞자리6자리", "주민번호앞자리", "주민번호",
+    "주민등록번호앞자리6자리", "rrn6", "ssn6",
+)
+
+
+@app.get("/agent/contract-status")
+async def agent_contract_status_get(request: Request):
+    """GET 우회로 — sidetalk 의 POST 본문 전송이 고쳐질 때까지만 쓴다.
+
+    GET 은 이름·생년월일이 URL 에 실려 접속기록에 개인정보가 남는다.
+    그래서 DEMO_MODE 일 때만 열어둔다. 실제 DB 를 붙이는 순간
+    (DEMO_MODE=0) 이 경로는 자동으로 막히므로, 실 개인정보가
+    URL 로 흐르는 일은 구조적으로 생기지 않는다.
+    """
+    if not _authorized(request):
+        log.warning("unauthorized agent call (GET)")
+        return JSONResponse(status_code=401, content={"message": "unauthorized"})
+
+    if not DEMO_MODE:
+        log.warning("GET 차단 — DEMO_MODE 가 꺼져 있음")
+        return agent_card(
+            "이 방식은 사용할 수 없습니다",
+            "개인정보 보호를 위해 GET 방식 조회는 테스트 모드에서만 열려 있습니다.\n"
+            "POST 방식으로 요청해 주세요.",
+        )
+
+    return _agent_respond(dict(request.query_params), "GET")
+
+
 @app.post("/agent/contract-status")
 async def agent_contract_status(request: Request):
     """sidetalk 'API 요청' 액션이 호출하는 엔드포인트.
 
-    설정 화면에서 반드시 POST 를 선택할 것.
-    GET 을 쓰면 이름·생년월일이 URL 에 실려 접속기록에 개인정보가 남는다.
+    가능하면 POST 를 쓸 것. GET 은 이름·생년월일이 URL 에 남는다.
     헤더에 Authorization / Bearer <SKILL_TOKEN> 을 등록해야 통과한다.
     """
-    started = time.time()
-
     if not _authorized(request):
         log.warning("unauthorized agent call")
         return JSONResponse(status_code=401, content={"message": "unauthorized"})
@@ -257,13 +288,15 @@ async def agent_contract_status(request: Request):
     except Exception:
         body = {}
 
-    raw_name = agent_get_param(
-        body, "name", "이름", "성함", "applicant_name")
-    raw_birth = agent_get_param(
-        body, "birth", "생년월일", "birthday", "birth_ymd",
-        # sidetalk 트리거에 "주민번호앞자리6자리" 로 등록한 경우
-        "주민번호앞자리6자리", "주민번호앞자리", "주민번호", "주민등록번호앞자리6자리",
-        "rrn6", "ssn6")
+    return _agent_respond(body, "POST")
+
+
+def _agent_respond(body: Any, method: str) -> Dict[str, Any]:
+    """파라미터 추출 → 조회 → 카드 생성. GET·POST 가 함께 쓴다."""
+    started = time.time()
+
+    raw_name = agent_get_param(body, *NAME_KEYS)
+    raw_birth = agent_get_param(body, *BIRTH_KEYS)
 
     name = kakao.normalize_name(raw_name or "")
     birth = kakao.normalize_birth(raw_birth or "")
@@ -317,12 +350,7 @@ def _flatten(obj: Any, prefix: str = "") -> List[str]:
 
 @app.get("/agent/echo")
 async def agent_echo_get(request: Request):
-    """진단 전용 — GET 으로 왔을 때 쿼리스트링을 보여준다.
-
-    POST 본문이 깨지는 원인을 가려내기 위한 임시 조치다.
-    실제 운영에서는 GET 을 쓰면 안 된다. 이름·생년월일이 URL 에 실려
-    접속기록에 개인정보가 그대로 남는다. 확인이 끝나면 삭제할 것.
-    """
+    """진단 전용 — GET 으로 왔을 때 쿼리스트링을 보여준다."""
     if not _authorized(request):
         return JSONResponse(status_code=401, content={"message": "unauthorized"})
 
@@ -334,6 +362,7 @@ async def agent_echo_get(request: Request):
 
 @app.post("/agent/echo")
 async def agent_echo(request: Request):
+    """진단 전용 — POST 본문을 그대로 보여준다."""
     if not _authorized(request):
         return JSONResponse(status_code=401, content={"message": "unauthorized"})
 
@@ -344,7 +373,6 @@ async def agent_echo(request: Request):
         body = json.loads(text)
         lines = _flatten(body) or ["(빈 본문)"]
     except Exception:
-        # JSON 이 아니면 원문 그대로. 중괄호는 화면 오해를 막으려고 치환한다.
         lines = ["JSON 아님 — 원문 그대로:",
                  text.replace("{", "(").replace("}", ")").replace('"', "'")]
 
