@@ -223,7 +223,10 @@ async def answer(question: str) -> str:
         log.warning("CLOVA 응답 지연")
         return NO_ANSWER
     except urllib.error.HTTPError as e:
-        log.error("CLOVA HTTP 오류 %s: %s", e.code, e.read()[:200])
+        # 어느 주소로 불렀는지 함께 남긴다. 환경변수가 반영됐는지 여기서 확인된다.
+        log.error("CLOVA HTTP 오류 %s | 호출주소=%s | 키앞자리=%s | 본문=%s",
+                  e.code, CLOVA_API_URL, (CLOVA_API_KEY or "")[:6] + "...",
+                  e.read()[:200])
         return NO_ANSWER
     except Exception:
         log.exception("CLOVA 호출 실패")
