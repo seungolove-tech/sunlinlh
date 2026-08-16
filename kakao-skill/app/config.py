@@ -52,7 +52,7 @@ CONTACT_TEXT = os.getenv("CONTACT_TEXT", "법무법인 선린 LH팀 1670-0002")
 #   CLOVA_APIGW_KEY 구형 방식일 때만 사용. 신형(Bearer)은 비워둔다.
 CLOVA_API_URL = os.getenv(
     "CLOVA_API_URL",
-    "https://clovastudio.stream.ntruss.com/v3/chat-completions/HCX-005",
+    "https://clovastudio.stream.ntruss.com/v3/chat-completions/HCX-DASH-002",
 )
 CLOVA_API_KEY = os.getenv("CLOVA_API_KEY", "")
 CLOVA_APIGW_KEY = os.getenv("CLOVA_APIGW_KEY", "")
