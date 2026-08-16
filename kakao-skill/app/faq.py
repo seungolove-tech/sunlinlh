@@ -183,10 +183,10 @@ def _call_clova(question: str) -> str:
             {"role": "system", "content": SYSTEM_PROMPT.format(faq=pick_related(question))},
             {"role": "user", "content": question},
         ],
-        "maxTokens": CLOVA_MAX_TOKENS,
-        "temperature": 0.1,   # 매번 같은 답이 나오도록 낮게 잡는다
         "topP": 0.8,
-        "repeatPenalty": 5.0,
+        "temperature": 0.1,   # 매번 같은 답이 나오도록 낮게 잡는다
+        "repetitionPenalty": 1.1,
+        "maxTokens": CLOVA_MAX_TOKENS,
     }
 
     req = urllib.request.Request(
