@@ -3,11 +3,10 @@
 실행:  uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 엔드포인트
-  POST     /skill/contract-status   카카오 i 오픈빌더 스킬용 (응답: 카카오 template 2.0)
-  POST/GET /agent/contract-status   sidetalk AI 에이전트용   (응답: sidetalk.card.v1)
+  POST /skill/contract-status   카카오 i 오픈빌더 스킬용 (응답: 카카오 template 2.0)
+  POST /agent/contract-status   sidetalk AI 에이전트용   (응답: sidetalk.card.v1)
 
-GET 은 sidetalk 의 POST 본문 전송 결함 때문에 열어둔 우회로다.
-DEMO_MODE 일 때만 동작하므로 실제 개인정보가 URL 로 흐르지 않는다.
+두 엔드포인트는 조회 로직을 공유하고 응답 포맷만 다르다.
 """
 import logging
 import time
@@ -16,7 +15,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import kakao
+from . import faq, kakao
 from .config import (
     CONTACT_TEXT,
     DEMO_MODE,
@@ -123,7 +122,7 @@ def _not_found_text(name: str, birth: str) -> str:
 
 
 def _authorized(request: Request) -> bool:
-    """헤더의 Bearer 토큰 확인. 모든 엔드포인트 공통."""
+    """헤더의 Bearer 토큰 확인. 두 엔드포인트 공통."""
     if not SKILL_TOKEN:
         return True
     return request.headers.get("authorization", "") == f"Bearer {SKILL_TOKEN}"
@@ -203,7 +202,11 @@ AGENT_BUTTONS = [
 
 def agent_card(title: str, description: str,
                buttons: Optional[List[dict]] = None) -> Dict[str, Any]:
-    """sidetalk.card.v1 형식 응답을 만든다."""
+    """sidetalk.card.v1 형식 응답을 만든다.
+
+    items 가 한 건뿐이라 displayMode 는 어떤 값이든 결과가 같지만,
+    매뉴얼 예시를 그대로 따라 "random" 을 쓴다.
+    """
     item: Dict[str, Any] = {
         "type": "text",
         "title": title[:50],
@@ -220,7 +223,12 @@ def agent_card(title: str, description: str,
 
 
 def agent_get_param(data: Any, *keys: str) -> Optional[str]:
-    """요청에서 값을 찾는다. 중첩된 구조도 한 단계씩 내려가며 훑는다."""
+    """에이전트가 보낸 본문에서 값을 찾는다.
+
+    설정 화면에서 파라미터를 어떤 이름으로 매핑했는지에 따라
+    최상위에 올 수도, params/data 같은 키 아래에 중첩될 수도 있어
+    한 단계씩 내려가며 훑는다.
+    """
     if not isinstance(data, dict):
         return None
     for key in keys:
@@ -320,4 +328,55 @@ def _agent_respond(body: Any, method: str) -> Dict[str, Any]:
         f"{name}님 권리분석 진행상태",
         _describe(rows),
         AGENT_BUTTONS,
+    )
+
+
+# ════════════════════════════════════════════════════════════
+# 3) FAQ 자동 응답 — 오픈빌더 폴백 블록에 연결한다.
+#    사이드톡 같은 외부 업체를 거치지 않고, 우리 서버가 직접
+#    FAQ 자료를 근거로 답변을 만든다.
+# ════════════════════════════════════════════════════════════
+
+def _utterance(body: Any) -> str:
+    """사용자가 실제로 입력한 문장을 꺼낸다."""
+    if not isinstance(body, dict):
+        return ""
+    ur = body.get("userRequest") or {}
+    text = ur.get("utterance")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    # 폴백 블록이 아닌 경로로 들어온 경우까지 대비
+    return (kakao.get_param(body, "question", "질문", "query") or "").strip()
+
+
+@app.post("/skill/faq")
+async def skill_faq(request: Request):
+    """폴백 블록에서 호출한다. 어떤 경우에도 200 과 카카오 응답을 돌려준다."""
+    started = time.time()
+
+    if not _authorized(request):
+        log.warning("unauthorized faq call")
+        return JSONResponse(status_code=401, content={"message": "unauthorized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    question = _utterance(body)
+    if len(question) < 2:
+        return kakao.simple_text(
+            "궁금하신 내용을 문장으로 입력해 주세요.\n"
+            "예) 권리분석은 얼마나 걸리나요?"
+        )
+
+    text = await faq.answer(question)
+    log.info("faq answered in %.2fs (질문 %d자)", time.time() - started, len(question))
+
+    return kakao.simple_text(
+        text,
+        quick_replies=[
+            kakao.qr_message("진행상황 조회", "권리분석 진행상태 조회"),
+            kakao.qr_message("상담원 연결", "상담원 연결"),
+        ],
     )
