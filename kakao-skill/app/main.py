@@ -180,15 +180,11 @@ async def contract_status(request: Request):
             quick_replies=[kakao.qr_message("다시 조회하기", "권리분석 진행상태 조회")],
         )
 
+
     return kakao.text_card(
         title=f"{name}님 권리분석 진행상태",
         description=_describe(rows),
-        quick_replies=[
-            kakao.qr_message("다시 조회하기", "권리분석 진행상태 조회"),
-            kakao.qr_message("상담원 연결", "상담원 연결"),
-        ],
     )
-
 
 # ════════════════════════════════════════════════════════════
 # 2) sidetalk AI 에이전트 (응답 포맷: sidetalk.card.v1)
