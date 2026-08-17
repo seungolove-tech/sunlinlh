@@ -8,7 +8,7 @@ on:
     types: [created]
 jobs:
   claude:
-       if: contains(github.event.comment.body, '@claude') || contains(github.event.issue.body, '@claude')
+    if: contains(github.event.comment.body, '@claude') || contains(github.event.issue.body, '@claude')
     runs-on: ubuntu-latest
     permissions:
       contents: write
