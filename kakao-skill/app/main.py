@@ -373,4 +373,4 @@ async def skill_faq(request: Request):
     text = await faq.answer(question)
     log.info("faq answered in %.2fs (질문 %d자)", time.time() - started, len(question))
 
-return kakao.simple_text(text)
+    return kakao.simple_text(text)
