@@ -373,10 +373,4 @@ async def skill_faq(request: Request):
     text = await faq.answer(question)
     log.info("faq answered in %.2fs (질문 %d자)", time.time() - started, len(question))
 
-    return kakao.simple_text(
-        text,
-        quick_replies=[
-            kakao.qr_message("진행상황 조회", "권리분석 진행상태 조회"),
-            kakao.qr_message("상담원 연결", "상담원 연결"),
-        ],
-    )
+return kakao.simple_text(text)
