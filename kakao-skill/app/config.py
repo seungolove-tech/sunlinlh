@@ -66,4 +66,4 @@ CLOVA_MAX_TOKENS = int(os.getenv("CLOVA_MAX_TOKENS", "300"))
 FAQ_PATH = os.getenv("FAQ_PATH", "faq.md")
 
 # 질문 한 건당 프롬프트에 넣을 FAQ 항목 수 (많을수록 정확하지만 느리고 비쌈)
-FAQ_TOP_K = int(os.getenv("FAQ_TOP_K", "8"))
+FAQ_TOP_K = int(os.getenv("FAQ_TOP_K", "20"))
