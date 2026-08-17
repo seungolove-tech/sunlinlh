@@ -85,28 +85,69 @@ def load_items() -> List[str]:
 
 def _grams(text: str) -> set:
     """한글은 어미 변화가 많아 단어 단위 비교가 잘 안 맞는다.
-    두 글자씩 잘라 비교하면 '재계약'/'재계약을'/'재계약이' 가 모두 겹친다."""
-    t = "".join(ch for ch in text if ch.isalnum())
+    두 글자씩 잘라 비교하면 '재계약'/'재계약을'/'재계약이' 가 모두 겹친다.
+    소문자로 통일하는 이유: 사용자는 'Sgi' 처럼 쓰고 자료는 'SGI' 로 적혀 있어
+    대소문자를 구분하면 서로 다른 글자로 취급되어 매칭이 안 된다."""
+    t = "".join(ch for ch in text.lower() if ch.isalnum())
     return {t[i:i + 2] for i in range(len(t) - 1)} if len(t) > 1 else {t}
 
 
+def _head_and_body(item: str) -> tuple:
+    """항목을 head(질문줄 + 키워드줄)와 body(나머지 설명)로 나눈다.
+
+    질문줄과 키워드줄은 실제 사용자 질문과 표현이 가장 비슷한 부분이라
+    검색 점수에서 본문보다 더 크게 반영해야 한다. 그 재료로 쓰기 위해 분리한다.
+    """
+    lines = item.splitlines()
+    if not lines:
+        return "", ""
+    head_lines = [lines[0]]
+    body_lines = []
+    for line in lines[1:]:
+        if line.startswith("키워드:"):
+            head_lines.append(line)
+        else:
+            body_lines.append(line)
+    return "\n".join(head_lines), "\n".join(body_lines)
+
+
+# 질문줄·키워드줄(head)을 본문(body)보다 몇 배 중요하게 볼지.
+# 사용자가 실제로 입력할 법한 표현은 본문 설명보다 질문줄·키워드줄에 더 가깝기 때문이다.
+HEAD_WEIGHT = 3
+
+
+def _strip_keywords(item: str) -> str:
+    """모델에 넘길 문장에서 "키워드:" 줄을 뺀다.
+
+    키워드줄은 검색 정확도를 높이기 위해 넣어둔 것일 뿐 답변 내용이 아니므로,
+    프롬프트에 그대로 들어가면 불필요한 텍스트만 늘어난다.
+    """
+    return "\n".join(line for line in item.splitlines() if not line.startswith("키워드:"))
+
+
 def pick_related(question: str, k: int = FAQ_TOP_K) -> str:
-    """질문과 겹치는 글자가 많은 순으로 FAQ 항목 k개를 골라 이어붙인다."""
+    """질문과 겹치는 글자가 많은 순으로 FAQ 항목 k개를 골라 이어붙인다.
+
+    질문줄·키워드줄(head)과 본문(body)을 나눠 head 쪽 겹침에 HEAD_WEIGHT 배
+    가중치를 준다. 분모는 항목 길이가 아니라 질문 길이(len(qg))로 정규화해서,
+    항목이 길다고 무조건 점수가 깎이거나 유리해지지 않도록 한다.
+    """
     items = load_items()
     if not items:
         return load_faq()
     if len(items) <= k:
-        return "\n\n".join(items)
+        return "\n\n".join(_strip_keywords(it) for it in items)
 
     qg = _grams(question)
     scored = []
     for it in items:
-        ig = _grams(it)
-        overlap = len(qg & ig)
-        # 긴 항목이 무조건 유리해지지 않도록 길이로 눌러준다
-        scored.append((overlap / (len(ig) ** 0.5 + 1), it))
+        head, body = _head_and_body(it)
+        score = (
+            HEAD_WEIGHT * len(qg & _grams(head)) + len(qg & _grams(body))
+        ) / (len(qg) * HEAD_WEIGHT + 1)
+        scored.append((score, it))
     scored.sort(key=lambda x: -x[0])
-    return "\n\n".join(it for _, it in scored[:k])
+    return "\n\n".join(_strip_keywords(it) for _, it in scored[:k])
 
 
 SYSTEM_PROMPT = f"""너는 법무법인 선린 LH전세임대팀의 안내 담당자다.
@@ -119,6 +160,10 @@ SYSTEM_PROMPT = f"""너는 법무법인 선린 LH전세임대팀의 안내 담�
 4. 3문장 이내, 200자 이내로 답한다.
 5. 인사말, 사족, 이모지를 쓰지 않고 질문에 대한 답만 쓴다.
 6. 금액·기한·요건은 자료에 적힌 숫자를 그대로 쓴다. 반올림하거나 바꾸지 않는다.
+7. 관련 있어 보이는 항목이 여러 개면, 질문에 가장 직접적으로 답하는 항목을 고른다.
+   질문이 일반적인 방법·절차를 묻는데 자료에 예외 상황 항목(예: '~가 불가한 경우',
+   '~이 되지 않을 때')이 섞여 있으면, 질문에 그 조건이 나오지 않는 한 예외 항목으로
+   답하지 않는다. 먼저 기본 절차를 답한다.
 
 [FAQ 자료]
 {{faq}}
